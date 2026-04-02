@@ -1,0 +1,43 @@
+import google.generativeai as genai
+import os
+from dotenv import load_dotenv
+from typing import List
+
+load_dotenv()
+
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+
+# text-embedding-004 is Google's latest embedding model.
+# It produces 768-dimensional vectors — a good balance of quality and speed.
+EMBED_MODEL = "models/gemini-embedding-001"
+
+
+def get_embedding(text: str) -> List[float]:
+    """
+    Convert a single string into a vector embedding.
+    Used at query time to embed the user's question.
+    """
+    result = genai.embed_content(
+        model=EMBED_MODEL,
+        content=text,
+        task_type="retrieval_query"   # optimised for searching
+    )
+    return result["embedding"]
+
+
+def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
+    """
+    Convert a list of strings into embeddings.
+    Used at indexing time to embed all document chunks.
+    task_type='retrieval_document' tells Gemini these are passages
+    to be stored and searched — slightly different optimisation than queries.
+    """
+    embeddings = []
+    for text in texts:
+        result = genai.embed_content(
+            model=EMBED_MODEL,
+            content=text,
+            task_type="retrieval_document"
+        )
+        embeddings.append(result["embedding"])
+    return embeddings
