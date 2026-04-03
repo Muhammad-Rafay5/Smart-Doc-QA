@@ -1,22 +1,23 @@
-# Use Python 3.11
+# Use Python 3.11 to satisfy NetworkX 3.6.1 requirements
 FROM python:3.11
 
-# Set working directory
-WORKDIR /app
+# Set the working directory inside the container
+WORKDIR /code
 
-# Copy requirements and install
+# Copy requirements and install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application
+# Copy all project files from your local folder into the container
 COPY . .
 
-# Expose the ports for FastAPI (8000) and Streamlit (7860)
-# Note: Hugging Face default port is 7860
+# Grant full permissions to the code directory for the container user
+RUN chmod -R 777 /code
+
+# Tell Hugging Face to listen on port 7860
 EXPOSE 7860
 
-# Create a shell script to run both
-RUN echo "#!/bin/bash\nuvicorn app.main:app --host 0.0.0.0 --port 8000 &\nstreamlit run app/app.py --server.port 7860 --server.address 0.0.0.0" > start.sh
-RUN chmod +x start.sh
-
-CMD ["./start.sh"]
+# Start both servers:
+# 1. FastAPI (Backend) on port 8000
+# 2. Streamlit (Frontend) on port 7860
+CMD sh -c "python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 & python -m streamlit run frontend/app.py --server.port 7860 --server.address 0.0.0.0"
