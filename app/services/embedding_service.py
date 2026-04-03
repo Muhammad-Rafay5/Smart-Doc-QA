@@ -12,17 +12,17 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 EMBED_MODEL = "models/text-embedding-004"
 
 
-def get_embedding(text: str) -> List[float]:
+def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
     """
     Convert a single string into a vector embedding.
     Used at query time to embed the user's question.
     """
     result = genai.embed_content(
         model=EMBED_MODEL,
-        content=text,
-        task_type="retrieval_query"   # optimised for searching
+        content=texts,
+        task_type="retrieval_document"   # optimised for searching
     )
-    return result["embedding"]
+    return result["embeddings"]
 
 
 def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
