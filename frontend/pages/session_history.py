@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import json
 
-API = "http://localhost:8000"
+API = "http://127.0.0.1:8000"
 
 
 def render():
