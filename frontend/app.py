@@ -22,11 +22,11 @@ st.sidebar.caption("Backend: FastAPI + ChromaDB + SQLite")
 st.sidebar.caption("LLM: Gemini 1.5 Flash")
 
 if page == "📂 Dashboard":
-    from pages.dashboard import render
+    from views.dashboard import render
     render()
 elif page == "💬 Q&A Interface":
-    from pages.qa_interface import render
+    from views.qa_interface import render
     render()
 elif page == "🕘 Session History":
-    from pages.session_history import render
+    from views.session_history import render
     render()
