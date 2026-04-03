@@ -12,17 +12,17 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 EMBED_MODEL = "models/text-embedding-004"
 
 
-def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
+def get_embedding(text: str) -> List[float]:
     """
     Convert a single string into a vector embedding.
     Used at query time to embed the user's question.
     """
     result = genai.embed_content(
         model=EMBED_MODEL,
-        content=texts,
-        task_type="retrieval_document"   # optimised for searching
+        content=text,
+        task_type="retrieval_query"   # optimised for searching
     )
-    return result["embeddings"]
+    return result["embedding"]
 
 
 def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
@@ -32,12 +32,10 @@ def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
     task_type='retrieval_document' tells Gemini these are passages
     to be stored and searched — slightly different optimisation than queries.
     """
-    embeddings = []
-    for text in texts:
-        result = genai.embed_content(
-            model=EMBED_MODEL,
-            content=text,
-            task_type="retrieval_document"
-        )
-        embeddings.append(result["embedding"])
-    return embeddings
+    result = genai.embed_content(
+        model=EMBED_MODEL,
+        content=texts,
+        task_type="retrieval_document"
+    )
+    # FIX: Use "embeddings" (plural) when sending a list of texts
+    return result["embeddings"]
