@@ -1,17 +1,22 @@
-FROM python:3.11-slim
+# Use Python 3.10
+FROM python:3.10
 
+# Set working directory
 WORKDIR /app
 
-# Install dependencies
+# Copy requirements and install
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy all project files
+# Copy the rest of the application
 COPY . .
 
-# Expose ports for both services
-EXPOSE 8000
+# Expose the ports for FastAPI (8000) and Streamlit (7860)
+# Note: Hugging Face default port is 7860
 EXPOSE 7860
 
-# Start both FastAPI and Streamlit at the same time
-CMD uvicorn app.main:app --host 0.0.0.0 --port 8000 & sleep 5 && streamlit run frontend/app.py --server.port 7860 --server.address 0.0.0.0
+# Create a shell script to run both
+RUN echo "#!/bin/bash\nuvicorn app.main:app --host 0.0.0.0 --port 8000 &\nstreamlit run app/app.py --server.port 7860 --server.address 0.0.0.0" > start.sh
+RUN chmod +x start.sh
+
+CMD ["./start.sh"]
