@@ -1,8 +1,8 @@
 import google.generativeai as genai
 import os
-import asyncio # Added for the rate-limit pause
+import asyncio
 from dotenv import load_dotenv
-from typing import List
+from typing import List, Optional
 
 from .embedding_service import get_embedding
 from ..vector_store import search_namespaces
@@ -13,27 +13,49 @@ from ..database import (
 )
 
 load_dotenv()
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# Using Gemini 2.5 Flash as requested.
-# Note: 2.5 has stricter Free Tier limits than 2.0.
-_llm = genai.GenerativeModel(
-    model_name="gemini-2.5-flash",
-    generation_config=genai.GenerationConfig(temperature=0.1)
-)
+# Lazy initialization - model is created on first use
+_llm: Optional[genai.GenerativeModel] = None
 
-SYSTEM_PROMPT = """You are a helpful and precise assistant for SmartDoc Q&A.
+def _get_llm() -> genai.GenerativeModel:
+    """Lazy load the Gemini model to avoid startup crashes."""
+    global _llm
+    if _llm is None:
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise RuntimeError("GOOGLE_API_KEY environment variable is not set")
+        genai.configure(api_key=api_key)
+        _llm = genai.GenerativeModel(
+            model_name="gemini-2.5-flash",
+            generation_config=genai.GenerationConfig(temperature=0.1)
+        )
+    return _llm
 
-You have two modes of operation:
-1. GENERAL CONVERSATION: If the user is greeting you or asking general questions, 
-   answer naturally using your internal knowledge.
-2. DOCUMENT Q&A: If the user asks about the provided context:
-   - Answer ONLY using the document context provided below.
-   - Mention the source document name and page number.
-   - If missing, say: "I could not find that in the uploaded documents."
+SYSTEM_PROMPT = """You are a highly professional and versatile AI Assistant. Your goal is to provide "proper," structured, and comprehensive answers based on the provided Context.
 
-Rules:
-- Never invent facts. Keep answers clear and concise.
+DOMAIN ADAPTIVE INSTRUCTIONS:
+1. TECHNICAL & GUIDES (e.g., Roadmaps, Manuals): 
+   - Act as a thorough instructor. 
+   - If the user asks for steps, a list, or a roadmap, you MUST scan every context chunk to find the full sequence (e.g., Step 1 through Step 20). 
+   - Do not skip intermediate steps. Present them in a clean, numbered list.
+   
+2. LEGAL & OFFICIAL (e.g., Contracts, Agreements): 
+   - Act as a formal analyst. Focus on specific clauses, dates, obligations, and terminology.
+   
+3. MEDICAL & SCIENTIFIC (e.g., Reports, Research): 
+   - Act as a factual researcher. Focus on data, protocols, and symptoms accurately.
+
+4. GENERAL CONVERSATION (e.g., Hi, Hello): 
+   - Respond naturally and friendly. Avoid robotic "As an AI" phrases. Just be a helpful person.
+
+CORE RESPONSE RULES:
+- Connect information from ALL provided context chunks to build a unified, detailed answer.
+- Always cite the source for document-based answers: [Source: Filename, Page X].
+- Use Markdown (bolding, bullet points) to make the output professional and easy to read.
+- If information is missing, provide a helpful summary of the most relevant related points rather than a flat "I don't know."
+
+STRICT LIMIT:
+Never invent facts. All document-based answers must be grounded in the provided context.
 """
 
 async def answer_question(
@@ -53,8 +75,8 @@ async def answer_question(
         # Step 2 — Embed the question
         q_embedding = get_embedding(question)
 
-        # Step 3 — Retrieve chunks (Keep at 3 for speed with 2.5 Flash)
-        chunks = search_namespaces(namespaces, q_embedding, n_results=3)
+        # Step 3 — Retrieve chunks (Keep at 20 for speed with 2.5 Flash)
+        chunks = search_namespaces(namespaces, q_embedding, n_results=20)
         
         context = ""
         for c in chunks:
@@ -67,7 +89,7 @@ async def answer_question(
         history_text += f"User: {turn['question']}\nAssistant: {turn['answer']}\n\n"
 
     # Step 5 — Assemble Prompt
-    full_prompt = f"{SYSTEM_PROMPT}\n\nHistory:\n{history_text}\n\nContext:\n{context}\n\nQuestion: {question}\n\nAnswer:"
+    full_prompt = f"{SYSTEM_PROMPT}\n\nHistory:\n{history_text}\n\nContext:\n{context}\n\nUser Question: {question}\n\nPlease provide a detailed, proper response based on the context above:\nAnswer:"
 
     # --- RATE LIMIT PROTECTION ---
     # Since 2.5 Flash Free Tier is strict, we add a tiny 1-second 
@@ -76,7 +98,8 @@ async def answer_question(
 
     # Step 6 — Call Gemini 2.5 Flash
     try:
-        response = _llm.generate_content(full_prompt)
+        model = _get_llm()
+        response = model.generate_content(full_prompt)
         
         if response.candidates and response.candidates[0].content.parts:
             answer = response.text.strip()
@@ -88,8 +111,12 @@ async def answer_question(
         print(f"DEBUG: Gemini 2.5 Error: {error_msg}")
         if "429" in error_msg:
             answer = "Quota exceeded. Please wait 30 seconds before asking again."
+        elif "API key" in error_msg or "400" in error_msg:
+            answer = "Invalid API key configuration. Please check your GOOGLE_API_KEY in .env file."
+        elif "401" in error_msg:
+            answer = "Authentication failed. Please check your API key."
         else:
-            answer = "The AI service is currently unavailable."
+            answer = "The AI service is currently unavailable. Please try again."
 
     # Step 7 — Format and Save
     sources = [{"text": c["text"], "source": c["source"], "page": c["page"]} for c in chunks]

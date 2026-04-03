@@ -1,9 +1,17 @@
 import os
 import chromadb
-from typing import List, Dict
+from typing import List, Dict, Optional
 
-# One persistent client shared across the whole app
-_client = chromadb.PersistentClient(path=os.getenv("CHROMA_PATH", "/tmp/chroma_db"))
+# Lazy initialization - client is created on first use
+_client: Optional[chromadb.PersistentClient] = None
+
+def _get_client() -> chromadb.PersistentClient:
+    """Lazy load ChromaDB client to avoid startup crashes."""
+    global _client
+    if _client is None:
+        chroma_path = os.getenv("CHROMA_PATH", "/tmp/chroma_db")
+        _client = chromadb.PersistentClient(path=chroma_path)
+    return _client
 
 
 def get_or_create_collection(namespace: str):
@@ -12,7 +20,8 @@ def get_or_create_collection(namespace: str):
     cosine similarity is used because it measures the angle between
     two vectors — works better than raw Euclidean distance for text.
     """
-    return _client.get_or_create_collection(
+    client = _get_client()
+    return client.get_or_create_collection(
         name=namespace,
         metadata={"hnsw:space": "cosine"}
     )
@@ -21,7 +30,8 @@ def get_or_create_collection(namespace: str):
 def namespace_exists(namespace: str) -> bool:
     """Check if a document namespace already exists in ChromaDB."""
     try:
-        _client.get_collection(namespace)
+        client = _get_client()
+        client.get_collection(namespace)
         return True
     except Exception:
         return False
@@ -98,12 +108,14 @@ def search_namespaces(namespaces: List[str],
 def delete_namespace(namespace: str):
     """Delete a document collection and all its vectors from ChromaDB."""
     if namespace_exists(namespace):
-        _client.delete_collection(namespace)
+        client = _get_client()
+        client.delete_collection(namespace)
 
 
 def get_all_namespaces() -> List[str]:
     """Return all collection names currently stored in ChromaDB."""
-    return [c.name for c in _client.list_collections()]
+    client = _get_client()
+    return [c.name for c in client.list_collections()]
 
 
 def get_namespace_chunk_count(namespace: str) -> int:

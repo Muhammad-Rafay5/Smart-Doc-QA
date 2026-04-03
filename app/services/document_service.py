@@ -17,11 +17,14 @@ def extract_text_from_pdf(file_bytes: bytes) -> List[Dict]:
     Returns a list of dicts: [{"text": "...", "page": 1}, ...]
     """
     pages = []
-    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-        for page_num, page in enumerate(pdf.pages, start=1):
-            text = page.extract_text()
-            if text and text.strip():
-                pages.append({"text": text.strip(), "page": page_num})
+    try:
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            for page_num, page in enumerate(pdf.pages, start=1):
+                text = page.extract_text()
+                if text and text.strip():
+                    pages.append({"text": text.strip(), "page": page_num})
+    except Exception as e:
+        raise ValueError(f"Failed to parse PDF: {str(e)}")
     return pages
 
 
@@ -36,55 +39,66 @@ def extract_text_from_txt(file_bytes: bytes) -> List[Dict]:
     return [{"text": text, "page": 1}]
 
 
-def chunk_pages(
+def extract_text(file_bytes: bytes, filename: str) -> List[Dict]:
+    """General extractor used by tests and pipeline."""
+    fn = filename.lower()
+    if fn.endswith(".pdf"):
+        return extract_text_from_pdf(file_bytes)
+    if fn.endswith(".txt"):
+        return extract_text_from_txt(file_bytes)
+    return []
+
+
+def chunk_text(
     pages: List[Dict],
     filename: str,
     chunk_size: int = 500,
     overlap: int = 50
 ) -> List[Dict]:
-    """
-    Split each page's text into overlapping word-based chunks.
-
-    chunk_size = 500 words per chunk (~400-600 tokens, well within LLM limits)
-    overlap    = 50 words shared between consecutive chunks
-
-    Each chunk carries:
-      - text     : the actual text content
-      - page     : which PDF page it came from
-      - source   : the original filename
-      - chunk_id : unique ID used by ChromaDB (must be unique across all docs)
-    """
+    """Text chunker matching test expectations."""
     chunks = []
     for page_data in pages:
-        text     = page_data["text"]
+        text = page_data["text"]
         page_num = page_data["page"]
-        words    = text.split()
 
-        i           = 0
+        if not text:
+            continue
+
+        start = 0
+        text_len = len(text)
+        if text_len <= chunk_size:
+            chunks.append({
+                "text": text,
+                "page": page_num,
+                "source": filename,
+                "chunk_id": f"{filename}__chunk_{page_num}_0"
+            })
+            continue
+
         chunk_index = 0
+        while start < text_len:
+            end = min(start + chunk_size, text_len)
+            chunk_fragment = text[start:end]
 
-        while i < len(words):
-            chunk_words = words[i: i + chunk_size]
-
-            # Skip tiny tail fragments (less than 20 words adds noise)
-            if len(chunk_words) < 20:
+            # Avoid an empty final chunk
+            if not chunk_fragment:
                 break
 
-            chunk_text = " ".join(chunk_words)
             chunks.append({
-                "text":     chunk_text,
-                "page":     page_num,
-                "source":   filename,
-                "chunk_id": f"{filename}_p{page_num}_c{chunk_index}"
+                "text": chunk_fragment,
+                "page": page_num,
+                "source": filename,
+                "chunk_id": f"{filename}__chunk_{page_num}_{chunk_index}"
             })
 
-            i           += chunk_size - overlap
+            if end == text_len:
+                break
+
+            start = end - overlap if overlap < chunk_size else end
             chunk_index += 1
 
     return chunks
 
-
-# ── Full Indexing Pipeline ────────────────────────────────────────────────────
 
 async def process_and_index(
     file_bytes: bytes,
@@ -103,35 +117,41 @@ async def process_and_index(
 
     Returns the total number of chunks indexed.
     """
-    # Step 1 — Extract
-    if filename.lower().endswith(".pdf"):
-        pages = extract_text_from_pdf(file_bytes)
-    else:
-        pages = extract_text_from_txt(file_bytes)
+    try:
+        # Step 1 — Extract
+        if filename.lower().endswith(".pdf"):
+            pages = extract_text_from_pdf(file_bytes)
+        else:
+            pages = extract_text_from_txt(file_bytes)
 
-    if not pages:
-        raise ValueError(
-            "No readable text found in this document. "
-            "If it is a scanned PDF, OCR is not supported in v1."
-        )
+        if not pages:
+            raise ValueError(
+                "No readable text found in this document. "
+                "If it is a scanned PDF, OCR is not supported in v1."
+            )
 
-    # Step 2 — Chunk
-    chunks = chunk_pages(pages, filename)
+        # Step 2 — Chunk
+        chunks = chunk_text(pages, filename)
 
-    if not chunks:
-        raise ValueError(
-            "Document is too short to chunk. "
-            "Please upload a document with more content."
-        )
+        if not chunks:
+            raise ValueError(
+                "Document is too short to chunk. "
+                "Please upload a document with more content."
+            )
 
-    # Step 3 — Embed all chunks
-    texts      = [c["text"] for c in chunks]
-    embeddings = get_embeddings_batch(texts)
+        # Step 3 — Embed all chunks
+        texts      = [c["text"] for c in chunks]
+        embeddings = get_embeddings_batch(texts)
 
-    # Step 4 — Store in ChromaDB
-    index_chunks(namespace, chunks, embeddings)
+        # Step 4 — Store in ChromaDB
+        index_chunks(namespace, chunks, embeddings)
 
-    # Step 5 — Register in SQLite
-    register_document(namespace, filename, len(chunks), file_size_kb)
+        # Step 5 — Register in SQLite
+        register_document(namespace, filename, len(chunks), file_size_kb)
 
-    return len(chunks)
+        return len(chunks)
+    except Exception as e:
+        # Re-raise with context for better error messages
+        if isinstance(e, ValueError):
+            raise
+        raise ValueError(f"Failed to process document '{filename}': {str(e)}")

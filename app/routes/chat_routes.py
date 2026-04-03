@@ -14,31 +14,38 @@ async def chat(request: ChatRequest):
     request.namespaces = []  → search ALL indexed documents
     request.namespaces = ["doc1_pdf", "doc2_pdf"] → search only those two
     """
-    if not request.question.strip():
-        raise HTTPException(status_code=400, detail="Question cannot be empty.")
-
     try:
+        if not request.question or not request.question.strip():
+            raise HTTPException(status_code=400, detail="Question cannot be empty.")
+
         result = await answer_question(
             question=request.question,
             session_id=request.session_id,
-            namespaces=request.namespaces
+            namespaces=request.namespaces if request.namespaces else []
         )
+
+        return ChatResponse(
+            answer=result["answer"],
+            sources=result["sources"],
+            session_id=request.session_id,
+            namespaces_queried=result["namespaces_queried"]
+        )
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-
-    return ChatResponse(
-        answer=result["answer"],
-        sources=result["sources"],
-        session_id=request.session_id,
-        namespaces_queried=result["namespaces_queried"]
-    )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process question: {str(e)}")
 
 
-@router.get("/history/{session_id}")
+@router.get("/sessions/{session_id}/history")
 def get_history(session_id: str):
     """
     Return all Q&A exchanges for a session.
     Used by the Streamlit Session History page.
     """
-    history = get_full_session_history(session_id)
-    return history
+    try:
+        history = get_full_session_history(session_id)
+        return history
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get history: {str(e)}")

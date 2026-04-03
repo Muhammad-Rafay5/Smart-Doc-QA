@@ -1,4 +1,5 @@
 import streamlit as st
+import uuid
 
 st.set_page_config(
     page_title="SmartDoc Q&A",
@@ -6,6 +7,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# Initialize session_id at app level so it's available across all pages
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
 
 # Sidebar navigation
 st.sidebar.title("📄 SmartDoc Q&A")

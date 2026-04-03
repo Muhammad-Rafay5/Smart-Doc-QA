@@ -9,6 +9,10 @@ DB_PATH = os.getenv("DB_PATH", "/tmp/smartdoc.db")
 
 def get_connection():
     """Return a new SQLite connection with row_factory set."""
+    # Ensure parent directory exists
+    db_dir = os.path.dirname(DB_PATH)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row   # lets us access columns by name like a dict
     return conn
@@ -93,6 +97,11 @@ def delete_document_record(namespace: str):
     conn.close()
 
 
+def delete_document(namespace: str):
+    """Backward-compatible alias used by tests."""
+    return delete_document_record(namespace)
+
+
 # ── Chat history table CRUD ───────────────────────────────────────────────────
 
 def save_chat_turn(session_id: str, question: str, answer: str,
@@ -152,6 +161,7 @@ def get_full_session_history(session_id: str):
     ).fetchall()
     conn.close()
     result = [dict(r) for r in rows]
+    # Deserialize sources JSON back to a list for each row
     for r in result:
         r["sources"] = json.loads(r["sources"])
     return result

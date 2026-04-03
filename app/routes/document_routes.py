@@ -9,16 +9,19 @@ router = APIRouter(prefix="/documents", tags=["Documents"])
 
 
 @router.post("/upload-document", response_model=UploadResponse)
-async def upload_document(file: UploadFile):
+async def upload_document(file: UploadFile, force: bool = False):
     """
     Upload and index a .pdf or .txt file.
 
     What happens:
     1. Validate the file type
     2. Create a safe namespace name from the filename
-    3. Check for duplicate uploads (return 409 if already indexed)
+    3. Check for duplicate uploads (return 409 if already indexed, unless force=True)
     4. Extract → chunk → embed → store in ChromaDB
     5. Register document metadata in SQLite
+
+    Params:
+    - force: If True, overwrite existing document with the same name
     """
 
     # Validate file type
@@ -36,15 +39,20 @@ async def upload_document(file: UploadFile):
         .lower()
     )
 
-    # Prevent duplicate indexing
+    # Handle duplicate uploads
     if namespace_exists(namespace):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"'{file.filename}' is already indexed. "
-                "Delete it first if you want to re-upload."
+        if force:
+            # Delete existing document and re-upload
+            delete_namespace(namespace)
+            delete_document_record(namespace)
+        else:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"'{file.filename}' is already indexed. "
+                    "Delete it first or use force=true to overwrite."
+                )
             )
-        )
 
     # Read file content
     content = await file.read()
@@ -60,6 +68,9 @@ async def upload_document(file: UploadFile):
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        # Catch any unexpected errors during processing
+        raise HTTPException(status_code=500, detail=f"Internal error processing document: {str(e)}")
 
     return UploadResponse(
         message="Document uploaded and processed successfully.",
@@ -74,7 +85,10 @@ def list_documents():
     Return all indexed documents from the SQLite registry.
     Used by the Streamlit Dashboard and Q&A document selector.
     """
-    return get_all_documents()
+    try:
+        return get_all_documents()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list documents: {str(e)}")
 
 
 @router.delete("/{namespace}", response_model=DeleteResponse)
@@ -83,12 +97,17 @@ def remove_document(namespace: str):
     Delete a document from both ChromaDB and SQLite.
     Both must be deleted — leaving one behind causes inconsistency.
     """
-    if not namespace_exists(namespace):
-        raise HTTPException(status_code=404, detail="Document not found.")
+    try:
+        if not namespace_exists(namespace):
+            raise HTTPException(status_code=404, detail="Document not found.")
 
-    delete_namespace(namespace)         # Remove vectors from ChromaDB
-    delete_document_record(namespace)   # Remove record from SQLite
+        delete_namespace(namespace)         # Remove vectors from ChromaDB
+        delete_document_record(namespace)   # Remove record from SQLite
 
-    return DeleteResponse(
-        message=f"Document '{namespace}' deleted successfully."
-    )
+        return DeleteResponse(
+            message=f"Document '{namespace}' deleted successfully."
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")
