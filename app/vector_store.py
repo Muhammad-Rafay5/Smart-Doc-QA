@@ -1,8 +1,9 @@
+import os
 import chromadb
 from typing import List, Dict
 
 # One persistent client shared across the whole app
-_client = chromadb.PersistentClient(path="./chroma_db")
+_client = chromadb.PersistentClient(path=os.getenv("CHROMA_PATH", "/tmp/chroma_db"))
 
 
 def get_or_create_collection(namespace: str):

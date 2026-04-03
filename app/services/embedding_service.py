@@ -9,7 +9,7 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 # text-embedding-004 is Google's latest embedding model.
 # It produces 768-dimensional vectors — a good balance of quality and speed.
-EMBED_MODEL = "models/gemini-embedding-001"
+EMBED_MODEL = "models/text-embedding-004"
 
 
 def get_embedding(text: str) -> List[float]:

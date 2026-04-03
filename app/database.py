@@ -1,9 +1,10 @@
+import os
 import sqlite3
 import json
 from pathlib import Path
 from datetime import datetime
 
-DB_PATH = "database/smartdoc.db"
+DB_PATH = os.getenv("DB_PATH", "/tmp/smartdoc.db")
 
 
 def get_connection():
@@ -19,7 +20,6 @@ def init_db():
     Called once when FastAPI starts (via lifespan in main.py).
     IF NOT EXISTS means it is safe to call multiple times.
     """
-    Path("database").mkdir(exist_ok=True)
     conn = get_connection()
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS documents (

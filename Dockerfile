@@ -14,4 +14,4 @@ EXPOSE 8000
 EXPOSE 7860
 
 # Start both FastAPI and Streamlit at the same time
-CMD uvicorn app.main:app --host 0.0.0.0 --port 8000 & streamlit run frontend/app.py --server.port 7860 --server.address 0.0.0.0
+CMD uvicorn app.main:app --host 0.0.0.0 --port 8000 & sleep 5 && streamlit run frontend/app.py --server.port 7860 --server.address 0.0.0.0
