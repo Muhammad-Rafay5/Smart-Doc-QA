@@ -1,3 +1,11 @@
+---
+title: Smart Doc QA
+emoji: 📄
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
 # SmartDoc Q&A
 
 **Intermediate-Level RAG Document Intelligence System**
@@ -45,6 +53,7 @@ smartdoc-qa/
 ├── .env.example
 ├── requirements.txt
 └── README.md
+├── Dockerfile                  # Deployment configuration for the cloud
 ```
 
 ---
